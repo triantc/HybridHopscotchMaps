@@ -7,6 +7,7 @@
 #include <stdlib.h>
 
 #include "ADTMap.h"
+#include "ADTVector.h"
 
 // Οι κόμβοι του map στην υλοποίηση με hash table, μπορούν να είναι σε 2 διαφορετικές καταστάσεις
 typedef enum {
@@ -37,6 +38,7 @@ struct map_node{
 // Δομή του Map (περιέχει όλες τις πληροφορίες που χρεαζόμαστε για το HashTable)
 struct map {
 	MapNode array;				// Ο πίνακας που θα χρησιμοποιήσουμε για το map (remember, φτιάχνουμε ένα hash table)
+	Vector* vector_array;		// Ο πίνακας που θα χρησιμοποιηθεί για το vector του κάθε mapnode που ανήκει στο main array (separate-chaining)
 	int capacity;				// Πόσο χώρο έχουμε δεσμεύσει.
 	int size;					// Πόσα στοιχεία έχουμε προσθέσει
 	CompareFunc compare;		// Συνάρτηση για σύγκριση δεικτών, που πρέπει να δίνεται απο τον χρήστη
@@ -51,10 +53,15 @@ Map map_create(CompareFunc compare, DestroyFunc destroy_key, DestroyFunc destroy
 	Map map = malloc(sizeof(*map));
 	map->capacity = prime_sizes[0];
 	map->array = malloc(map->capacity * sizeof(struct map_node));
+	map->vector_array = malloc(map->capacity * sizeof(Vector));
 
 	// Αρχικοποιούμε τους κόμβους που έχουμε σαν διαθέσιμους.
 	for (int i = 0; i < map->capacity; i++)
 		map->array[i].state = EMPTY;
+
+	// Αρχικοποιούμε όλους τους pointers σε vector ως κενά vectors
+	for (int i = 0; i < map->capacity; i++)
+		map->vector_array[i] = vector_create(0, NULL);
 
 	map->size = 0;
 	map->compare = compare;
@@ -69,6 +76,65 @@ int map_size(Map map) {
 	return map->size;
 }
 
+// Συνάρτηση για την επέκταση του Hash Table σε περίπτωση που ο load factor μεγαλώσει πολύ.
+static void rehash(Map map) {
+	// Αποθήκευση των παλιών δεδομένων
+	int old_capacity = map->capacity;
+	MapNode old_array = map->array;
+	Vector* old_vector_array = map->vector_array;
+
+	// Βρίσκουμε τη νέα χωρητικότητα, διασχίζοντας τη λίστα των πρώτων ώστε να βρούμε τον επόμενο. 
+	int prime_no = sizeof(prime_sizes) / sizeof(int);	// το μέγεθος του πίνακα
+	for (int i = 0; i < prime_no; i++) {					// LCOV_EXCL_LINE
+		if (prime_sizes[i] > old_capacity) {
+			map->capacity = prime_sizes[i]; 
+			break;
+		}
+	}
+	// Αν έχουμε εξαντλήσει όλους τους πρώτους, διπλασιάζουμε
+	if (map->capacity == old_capacity)					// LCOV_EXCL_LINE
+		map->capacity *= 2;								// LCOV_EXCL_LINE
+
+	// Δημιουργούμε ένα μεγαλύτερο hash table
+	map->array = malloc(map->capacity * sizeof(struct map_node));
+	for (int i = 0; i < map->capacity; i++)
+		map->array[i].state = EMPTY;
+
+	// Αρχικοποιούμε όλους τους pointers σε vector ως κενά vectors
+	for (int i = 0; i < map->capacity; i++)
+		map->vector_array[i] = vector_create(0, NULL);
+
+	// Τοποθετούμε ΜΟΝΟ τα entries που όντως περιέχουν ένα στοιχείο (το rehash είναι και μία ευκαιρία να ξεφορτωθούμε τα deleted nodes)
+	map->size = 0;
+	for (int i = 0; i < old_capacity; i++)	{
+		if (old_array[i].state == OCCUPIED)
+			map_insert(map, old_array[i].key, old_array[i].value);
+		Vector current_vector = old_vector_array[i];
+		for (VectorNode node = vector_first(current_vector);
+			 node != NULL;
+			 node = vector_next(current_vector, node)) {
+			MapNode map_node = vector_node_value(current_vector, node);
+			if (map_node->state == OCCUPIED)
+				map_insert(map, map_node->key, map_node->value);
+		}	
+	}
+
+	//Αποδεσμεύουμε τον παλιό πίνακα ώστε να μήν έχουμε leaks
+	free(old_array);
+	// ΝΑ ΚΑΝΩ FREE TO VECTOR ARRAY
+}
+
+
+// Εισαγωγή στοιχείου στο αντίστοιχο vector (separate-chaining)
+void insert_in_vector(Map map, Pointer key, Pointer value) {
+	uint pos = map->hash_function(key) % map->capacity;
+	MapNode node = malloc(sizeof(struct map_node));
+	node->state = OCCUPIED;
+	node->key = key;
+	node->value = value;
+	vector_insert_last(map->vector_array[pos], node);
+}
+
 // Εισαγωγή στο hash table του ζευγαριού (key, item). Αν το key υπάρχει,
 // ανανέωση του με ένα νέο value, και η συνάρτηση επιστρέφει true.
 
@@ -78,33 +144,28 @@ void map_insert(Map map, Pointer key, Pointer value) {
 	bool already_in_map = false;
 	MapNode node = NULL;
 	uint pos;
-
-	int counter = 0;
+	
+	// Αρχικά ελέγχουμε τους i+NEIGHBOURS κόμβους
+	int count = 0;
 	for (pos = map->hash_function(key) % map->capacity;		// ξεκινώντας από τη θέση που κάνει hash το key
 		map->array[pos].state != EMPTY;						// αν φτάσουμε σε EMPTY σταματάμε
 		pos = (pos + 1) % map->capacity) {					// linear probing, γυρνώντας στην αρχή όταν φτάσουμε στη τέλος του πίνακα
-	
+
 		if (map->compare(map->array[pos].key, key) == 0) {
 			already_in_map = true;
-			node = &map->array[pos];						// βρήκαμε το key, το ζευγάρι θα μπει αναγκαστικά εδώ
+			node = &map->array[pos];						// βρήκαμε το key, το ζευγάρι θα μπει αναγκαστικά εδώ (ακόμα και αν είχαμε προηγουμένως βρει DELETED θέση)
 			break;											// και δε χρειάζεται να συνεχίζουμε την αναζήτηση.
 		}
-		counter++;
-		if (counter == NEIGHBOURS)
-			break;
-	}
 
-	// for (pos = map->hash_function(key) % map->capacity;		// ξεκινώντας από τη θέση που κάνει hash το key
-	// 	map->array[pos].state != EMPTY;						// αν φτάσουμε σε EMPTY σταματάμε
-	// 	pos = (pos + 1) % map->capacity) {					// linear probing, γυρνώντας στην αρχή όταν φτάσουμε στη τέλος του πίνακα
+		if (count == NEIGHBOURS) {
+			insert_in_vector(map, key, value);
+			pos = map->hash_function(key) % map->capacity;
+			break;
+		}
+		count++;
+	}
 	
-	// 	if (map->compare(map->array[pos].key, key) == 0) {
-	// 		already_in_map = true;
-	// 		node = &map->array[pos];						// βρήκαμε το key, το ζευγάρι θα μπει αναγκαστικά εδώ
-	// 		break;											// και δε χρειάζεται να συνεχίζουμε την αναζήτηση.
-	// 	}
-	// }
-	if (node == NULL)										// αν βρήκαμε EMPTY (το node δεν έχει πάρει ακόμα τιμή)
+	if (map->array[pos].state == EMPTY)										// αν βρήκαμε EMPTY, το node δεν έχει πάρει ακόμα τιμή
 		node = &map->array[pos];
 
 	// Σε αυτό το σημείο, το node είναι ο κόμβος στον οποίο θα γίνει εισαγωγή.
@@ -121,12 +182,16 @@ void map_insert(Map map, Pointer key, Pointer value) {
 		map->size++;
 	}
 
-	// Προσθήκη τιμών στον κόμβο
-	node->state = OCCUPIED;
-	node->key = key;
-	node->value = value;
+	// Προσθήκη τιμών στον κόμβο αν δεν το έχουμε κάνει ήδη στο vector
+	if (node != NULL)
+	{
+		node->state = OCCUPIED;
+		node->key = key;
+		node->value = value;
+	}
 
 	// Αν με την νέα εισαγωγή ξεπερνάμε το μέγιστο load factor, πρέπει να κάνουμε rehash.
+	// Στο load factor μετράμε και τα DELETED, γιατί και αυτά επηρρεάζουν τις αναζητήσεις.
 	float load_factor = (float) map->size / map->capacity;
 	if (load_factor > MAX_LOAD_FACTOR)
 		rehash(map);
@@ -140,6 +205,28 @@ bool map_remove(Map map, Pointer key) {
 // Αναζήτηση στο map, με σκοπό να επιστραφεί το value του κλειδιού που περνάμε σαν όρισμα.
 
 Pointer map_find(Map map, Pointer key) {
+	uint pos = map->hash_function(key) % map->capacity;
+	
+	// Αρχικά ελέγχουμε τους i+NEIGHBOURS κόμβους
+	int count = 0;
+	for (pos = map->hash_function(key) % map->capacity;	
+		count != NEIGHBOURS + 1;								
+		pos = (pos + 1) % map->capacity) {
+		if (map->compare(map->array[pos].key, key) == 0)
+			return map->array[pos].value;
+		count++;
+	}
+
+	// Κάνουμε reset το position και ελέγχουμε το vector
+	pos = map->hash_function(key) % map->capacity;
+	Vector vector = map->vector_array[pos];
+	for (VectorNode node = vector_first(vector);
+		 node != NULL;
+		 node = vector_next(vector, node)) {
+		MapNode map_node = vector_node_value(vector, node);
+		if (map->compare(map_node->key, key) == 0)
+			return map->array[pos].value;
+	}
 	return NULL;
 }
 
@@ -160,7 +247,7 @@ void map_destroy(Map map) {
 /////////////////////// Διάσχιση του map μέσω κόμβων ///////////////////////////
 
 MapNode map_first(Map map) {
-	return MAP_EOF;
+	return map->array;
 }
 
 MapNode map_next(Map map, MapNode node) {
@@ -168,11 +255,11 @@ MapNode map_next(Map map, MapNode node) {
 }
 
 Pointer map_node_key(Map map, MapNode node) {
-	return NULL;
+	return node->key;
 }
 
 Pointer map_node_value(Map map, MapNode node) {
-	return NULL;
+	return node->value;
 }
 
 MapNode map_find_node(Map map, Pointer key) {
@@ -181,7 +268,7 @@ MapNode map_find_node(Map map, Pointer key) {
 
 // Αρχικοποίηση της συνάρτησης κατακερματισμού του συγκεκριμένου map.
 void map_set_hash_function(Map map, HashFunc func) {
-
+	map->hash_function = func;
 }
 
 uint hash_string(Pointer value) {

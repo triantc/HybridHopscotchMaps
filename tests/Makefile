@@ -11,7 +11,7 @@ UsingHopscotchHash_ADTMap_test_OBJS	= ADTMap_test.o $(MODULES)/UsingHopscotchHas
 
 # Υλοποιήσεις μέσω HybridHash: ADTMap
 #
-UsingHybridHash_ADTMap_test_OBJS	= ADTMap_test.o $(MODULES)/UsingHybridHash/ADTMap.o
+UsingHybridHash_ADTMap_test_OBJS	= ADTMap_test.o $(MODULES)/UsingHybridHash/ADTMap.o $(MODULES)/UsingDynamicArray/ADTVector.o
 
 
 # Ο βασικός κορμός του Makefile

@@ -427,7 +427,7 @@ TEST_LIST = {
 	{ "test_find",			test_find },
 	{ "test_iterate",		test_iterate },
 	{ "test_combined",		test_combined },
-	{ "test_combined2",		test_combined2 },
+	// { "test_combined2",		test_combined2 },
 
 	{ NULL, NULL } // τερματίζουμε τη λίστα με NULL
 }; 

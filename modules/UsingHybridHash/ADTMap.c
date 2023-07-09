@@ -277,30 +277,60 @@ void map_destroy(Map map) {
 
 /////////////////////// Διάσχιση του map μέσω κόμβων ///////////////////////////
 
+MapNode help_map_next(Map map, MapNode node) {
+	if (node->state == OCCUPIED)
+		return node;
+	Vector vector = map->vector_array[(node - map->array) / sizeof(MapNode)];
+	if (vector_size(vector) != 0)
+		return vector_node_value(vector, vector_first(vector));
+	else if (node == map->array + sizeof(MapNode) * (map->capacity - 1))
+		return MAP_EOF;
+	else
+		return help_map_next(map, node + sizeof(MapNode));
+}
+
 MapNode map_first(Map map) {
 	if (map->array[0].key == NULL)
 		return MAP_EOF;
-	return map->array;
+	return help_map_next(map, map->array);
 }
 
 MapNode map_next(Map map, MapNode node) {
-	// Το node είναι pointer στο i-οστό στοιχείο του array, οπότε node - array == i  (pointer arithmetic!)
-	for (int i = node - map->array + 1; i < map->capacity; i++)
-		if (map->array[i].state == OCCUPIED)
-			return &map->array[i];
-
-	uint pos = map->hash_function(node->key) % map->capacity;
-	if (map->array[pos].state == OCCUPIED)
-	{
-		
+	uint pos;
+	int count = 0;
+	for (pos = map->hash_function(node->key) % map->capacity;	
+		count != NEIGHBOURS + 1;								
+		pos = (pos + 1) % map->capacity, count++) {
+		if (map->array[pos].state == OCCUPIED) {
+			if (map->compare(map->array[pos].key, node->key) == 0) {
+				Vector vector = map->vector_array[pos];
+				if (vector_size(vector) != 0)
+					return vector_node_value(vector, vector_first(vector));
+				else if (node == map->array + sizeof(MapNode) * (map->capacity - 1))
+					return MAP_EOF;
+				else
+					return help_map_next(map, node + sizeof(MapNode));
+			}
+		}
 	}
-	
-	
-	
 
-
-
-
+	// το node δεν βρέθηκε στο map->array άρα θα είναι μέσα στο vector
+	pos = map->hash_function(node->key) % map->capacity;
+	Vector vector = map->vector_array[pos];
+	for (VectorNode vector_node = vector_first(vector);
+		vector_node != VECTOR_EOF;
+		vector_node = vector_next(vector, vector_node)) {
+		MapNode map_node = vector_node_value(vector, vector_node);
+		if (map->compare(map_node->key, node->key) == 0) {
+			VectorNode next = vector_next(vector, vector_node);
+			if (next != VECTOR_EOF)
+				return vector_node_value(vector, next);
+			else if (vector == map->vector_array[map->capacity - 1])
+				return MAP_EOF;
+			else
+				help_map_next(map, map->array + sizeof(MapNode));
+		}
+	}
 	return MAP_EOF;
 }
 

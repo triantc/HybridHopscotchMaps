@@ -265,9 +265,9 @@ void test_iterate(void) {
 	Map map = map_create(compare_ints, free, free);
 	map_set_hash_function(map, hash_int);
 	// first σε κενό map
-	//TEST_ASSERT(map_first(map) == MAP_EOF);
+	TEST_ASSERT(map_first(map) == MAP_EOF);
 	// Προσθέτουμε Ν ακεραίους, το value κάθε ακεραίου i είναι 2*i
-	int N = 10;
+	int N = 1000;
 	for (int i = 0; i < N; i++)
 		map_insert(map, create_int(i), create_int(2*i));
 
@@ -342,7 +342,7 @@ void test_combined(void) {
 		TEST_ASSERT(map_remove(map, &last_deleted));
 		TEST_ASSERT(map_find(map, &last_deleted) == NULL);
 	}
-	
+
 	TEST_ASSERT(map_size(map) == 0);
 
 	map_destroy(map);
@@ -409,7 +409,7 @@ void test_combined2(void) {
 			TEST_ASSERT(map_find(map, key) == NULL);
 		}
 	}
-	
+
 	TEST_ASSERT(map_size(map) == 0);
 
 	map_destroy(map);
@@ -427,7 +427,7 @@ TEST_LIST = {
 	{ "test_find",			test_find },
 	{ "test_iterate",		test_iterate },
 	{ "test_combined",		test_combined },
-	// { "test_combined2",		test_combined2 },
+	{ "test_combined2",		test_combined2 },
 
 	{ NULL, NULL } // τερματίζουμε τη λίστα με NULL
 }; 

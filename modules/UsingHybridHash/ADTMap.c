@@ -116,9 +116,11 @@ static void rehash(Map map) {
 			 node != VECTOR_EOF;
 			 node = vector_next(current_vector, node)) {
 			MapNode map_node = vector_node_value(current_vector, node);
-			if (map_node->state == OCCUPIED)
+			if (map_node->state == OCCUPIED) {
 				map_insert(map, map_node->key, map_node->value);
-		}	
+				free(map_node);
+			}
+		}
 	}
 
 	//Αποδεσμεύουμε τον παλιό πίνακα ώστε να μήν έχουμε leaks
@@ -150,7 +152,6 @@ void map_insert(Map map, Pointer key, Pointer value) {
 	if (node != MAP_EOF) {
 		if (node->key != key && map->destroy_key != NULL)
 			map->destroy_key(node->key);
-
 		if (node->value != value && map->destroy_value != NULL)
 			map->destroy_value(node->value);
 
@@ -230,6 +231,11 @@ bool map_remove(Map map, Pointer key) {
 			map->size--;
 			// Αφαιρούμε το συγκεκριμένο node με swap και pop_back
 			MapNode last_vector_node_value = vector_node_value(vector, vector_last(vector));
+			if (map->destroy_key != NULL)
+					map->destroy_key(map_node->key);
+			if (map->destroy_value != NULL)
+				map->destroy_value(map_node->value);
+			free(map_node);
 			vector_set_at(vector, count, last_vector_node_value);
 			vector_remove_last(vector);
 			return true;
@@ -270,8 +276,21 @@ void map_destroy(Map map) {
 			if (map->destroy_value != NULL)
 				map->destroy_value(map->array[i].value);
 		}
+		for (VectorNode vector_node = vector_first(map->vector_array[i]);    
+			vector_node != VECTOR_EOF;
+			vector_node = vector_next(map->vector_array[i], vector_node)) {
+			MapNode map_node = vector_node_value(map->vector_array[i], vector_node);
+			if (map_node->state == OCCUPIED) {
+				if (map->destroy_key != NULL)
+					map->destroy_key(map_node->key);
+				if (map->destroy_value != NULL)
+					map->destroy_value(map_node->value);
+			}
+			free(map_node);
+		}
 		vector_destroy(map->vector_array[i]);
 	}
+	
 	free(map->vector_array);
 	free(map->array);
 	free(map);

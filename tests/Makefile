@@ -3,11 +3,11 @@
 
 # Υλοποιήσεις μέσω HashTable: ADTMap
 #
-#UsingHashTable_ADTMap_test_OBJS		= ADTMap_test.o $(MODULES)/UsingHashTable/ADTMap.o
+UsingHashTable_ADTMap_test_OBJS		= ADTMap_test.o $(MODULES)/UsingHashTable/ADTMap.o
 
 # Υλοποιήσεις μέσω HopscotchHash: ADTMap
 #
-#UsingHopscotchHash_ADTMap_test_OBJS	= ADTMap_test.o $(MODULES)/UsingHopscotchHash/ADTMap.o
+UsingHopscotchHash_ADTMap_test_OBJS	= ADTMap_test.o $(MODULES)/UsingHopscotchHash/ADTMap.o
 
 # Υλοποιήσεις μέσω HybridHash: ADTMap
 #

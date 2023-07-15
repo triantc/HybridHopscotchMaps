@@ -93,36 +93,54 @@ static void rehash(Map map) {
 	for (int i = 0; i < map->capacity; i++)
 		map->array[i].state = EMPTY;
 
-
 	// Τοποθετούμε ΜΟΝΟ τα entries που όντως περιέχουν ένα στοιχείο
 	map->size = 0;
-	for (int i = 0; i < old_capacity; i++)	{
+	for (int i = 0; i < old_capacity; i++)
 		if (old_array[i].state == OCCUPIED)
 			map_insert(map, old_array[i].key, old_array[i].value);
-	}
 
 	//Αποδεσμεύουμε τον παλιό πίνακα ώστε να μήν έχουμε leaks
 	free(old_array);
 }
 
 void swap(MapNode node1, MapNode node2) {
-
+	struct map_node temp = *node1;
+    *node1 = *node2;
+    *node2 = temp;
 }
 
-MapNode hopscotch(Map map, Pointer key, Pointer value, uint pos) {
-	for (int pos_to_swap = pos - (NEIGHBOURS - 1); pos_to_swap < pos; pos_to_swap++) {
-		int base_hash_value = map->hash_function(map->array[pos_to_swap].key) % map->capacity;
-		if (map->hash_function((map->hash_function(key) % map->capacity + NEIGHBOURS)))
+// True αν το pos είναι γειτονικό του hash value του key αλλιώς false
+bool is_neighbour(Map map, Pointer key, int pos) {
+    int hash_value = map->hash_function(key) % map->capacity;
+    int distance = (pos - hash_value + map->capacity) % map->capacity;
+
+    if (distance <= NEIGHBOURS)
+        return true;
+	else
+    	return false;
+}
+
+// Παίρνει το key και το πρώτο empty node (΄int pos) που βρίσκουμε από πριν και  
+// αναδρομικά κάνει swaps και τοποθετεί το empty node στην κατάλληλη θέση
+// Επιστρέφει το node που θα κάνουμε το insert αν επιτύχει αλλιώς
+// επιστρέφει MAP_EOF και πρέπει να κάνουμε rehash και ξανά map_insert 
+MapNode hopscotch(Map map, Pointer key, uint pos) {
+	// Αν είναι γειτονικό το pos το βρήκαμε
+	if (is_neighbour(map, key, pos))
+		return &map->array[pos];
+
+	// Αλλιώς ψάχνουμε αναδρομικά NEIGHBOURS θέσεις πίσω το node 
+	// με το οποίο πρέπει να κάνουμε swap
+	for (int pos_to_swap = (pos - (NEIGHBOURS + 1) + map->capacity) % map->capacity;
+	 pos_to_swap != pos;
+	 pos_to_swap = (pos_to_swap + 1) % map->capacity) {
+		if (is_neighbour(map, map->array[pos_to_swap].key, pos))
 		{
-			
-		}
-		
-		if (base_hash_value + NEIGHBOURS <= pos) {
-			swap(&map->array[pos_to_swap], &map->array[pos]);
-			
+			swap(&map->array[pos], &map->array[pos_to_swap]);
+			return hopscotch(map, key, pos_to_swap);
 		}
 	}
-	
+	return MAP_EOF;
 }
 
 // Εισαγωγή στο hash table του ζευγαριού (key, item). Αν το key υπάρχει,
@@ -133,7 +151,6 @@ void map_insert(Map map, Pointer key, Pointer value) {
 	if (node != MAP_EOF) {
 		if (node->key != key && map->destroy_key != NULL)
 			map->destroy_key(node->key);
-
 		if (node->value != value && map->destroy_value != NULL)
 			map->destroy_value(node->value);
 
@@ -143,38 +160,28 @@ void map_insert(Map map, Pointer key, Pointer value) {
 	}
 
 	// Σε αυτό το σημείο δεν υπάρχει ίδιο key στο map
-	uint po;
+	uint pos;
 	node = NULL;	
 
 	int count = 0;
 	for (pos = map->hash_function(key) % map->capacity;		// ξεκινώντας από τη θέση που κάνει hash το key
 		map->array[pos].state != EMPTY;						// αν φτάσουμε σε EMPTY σταματάμε
-		pos = (pos + 1) % map->capacity, count++) {			// linear probing, γυρνώντας στην αρχή όταν φτάσουμε στη τέλος του πίνακα
-		if (map->array[pos].state == EMPTY && count < NEIGHBOURS)
-			node = &map->array[pos];
-		if (map->array[pos].state == EMPTY && count >= NEIGHBOURS)
-		{
-			
-		}
-		
-		
-		}
-	}
-	
+		pos = (pos + 1) % map->capacity, count++) {}		// linear probing, γυρνώντας στην αρχή όταν φτάσουμε στη τέλος του πίνακα
 
-	// Αρχικά ελέγχουμε τους i+NEIGHBOURS κόμβους
-	int count = 0;
-	for (pos = map->hash_function(key) % map->capacity;		// ξεκινώντας από τη θέση που κάνει hash το key
-		map->array[pos].state != EMPTY;						// αν φτάσουμε σε EMPTY σταματάμε
-		pos = (pos + 1) % map->capacity, count++) {			// linear probing, γυρνώντας στην αρχή όταν φτάσουμε στη τέλος του πίνακα
-		if (count == NEIGHBOURS) {
-			pos = map->hash_function(key) % map->capacity;
-			break;
-		}
-	}
-
-	if (map->array[pos].state == EMPTY)						// αν βρήκαμε EMPTY, το node δεν έχει πάρει ακόμα τιμή
+	// Στη θέση pos υπάρχει empty node και ελέγχουμε αν
+	// "ανήκει" στη γειτονιά του αρχικού hash value
+	// Αν ανήκει
+	if (map->array[pos].state == EMPTY && count <= NEIGHBOURS)
 		node = &map->array[pos];
+	// Αν δεν ανήκει
+	if (map->array[pos].state == EMPTY && count > NEIGHBOURS) {
+		node = hopscotch(map, key, pos);
+		if (node == MAP_EOF) {
+			rehash(map);
+			map_insert(map, key, value);
+			return;
+		}
+	}
 
 	map->size++;
 
@@ -194,45 +201,20 @@ void map_insert(Map map, Pointer key, Pointer value) {
 
 // Διαγραφή απο το Hash Table του κλειδιού με τιμή key
 bool map_remove(Map map, Pointer key) {
-	uint pos = map->hash_function(key) % map->capacity;
-	
-	// Αρχικά ελέγχουμε τους i+NEIGHBOURS κόμβους
-	int count = 0;
-	for (pos = map->hash_function(key) % map->capacity;	
-		count != NEIGHBOURS + 1;								
-		pos = (pos + 1) % map->capacity, count++) {
-		MapNode node = &map->array[pos];
-		if(node->state == OCCUPIED)
-			if (map->compare(node->key, key) == 0) {
-				node->state = EMPTY;
-				map->size--;
-				// destroy
-				if (map->destroy_key != NULL)
-					map->destroy_key(node->key);
-				if (map->destroy_value != NULL)
-					map->destroy_value(node->value);
-				return true;
-			}
-	}
+	MapNode node = map_find_node(map, key);
+	if (node == MAP_EOF)
+		return false;
 
-	// Κάνουμε reset το position και ελέγχουμε το vector
-	// pos = map->hash_function(key) % map->capacity;
-	// Vector vector = map->vector_array[pos];
-	// count = 0;
-	// for (VectorNode node = vector_first(vector);
-	// 	 node != VECTOR_EOF;
-	// 	 node = vector_next(vector, node), count++) {
-	// 	MapNode map_node = vector_node_value(vector, node);
-	// 	if (map->compare(map_node->key, key) == 0)	{
-	// 		map->size--;
-	// 		// Αφαιρούμε το συγκεκριμένο node με swap και pop_back
-	// 		MapNode last_vector_node_value = vector_node_value(vector, vector_last(vector));
-	// 		vector_set_at(vector, count, last_vector_node_value);
-	// 		vector_remove_last(vector);
-	// 		return true;
-	// 	}
-	// }
-	return false;
+	// destroy
+	if (map->destroy_key != NULL)
+		map->destroy_key(node->key);
+	if (map->destroy_value != NULL)
+		map->destroy_value(node->value);
+
+	node->state = EMPTY;
+	map->size--;
+
+	return true;
 }
 
 // Αναζήτηση στο map, με σκοπό να επιστραφεί το value του κλειδιού που περνάμε σαν όρισμα.
@@ -260,57 +242,36 @@ DestroyFunc map_set_destroy_value(Map map, DestroyFunc destroy_value) {
 
 // Απελευθέρωση μνήμης που δεσμεύει το map
 void map_destroy(Map map) {
-	// for (int i = 0; i < map->capacity; i++) {
-	// 	if (map->array[i].state == OCCUPIED) {
-	// 		if (map->destroy_key != NULL)
-	// 			map->destroy_key(map->array[i].key);
-	// 		if (map->destroy_value != NULL)
-	// 			map->destroy_value(map->array[i].value);
-	// 	}
-	// 	vector_destroy(map->vector_array[i]);
-	// }
-	// free(map->vector_array);
-	// free(map->array);
-	// free(map);
+	for (int i = 0; i < map->capacity; i++) {
+		if (map->array[i].state == OCCUPIED) {
+			if (map->destroy_key != NULL)
+				map->destroy_key(map->array[i].key);
+			if (map->destroy_value != NULL)
+				map->destroy_value(map->array[i].value);
+		}
+	}
+
+	free(map->array);
+	free(map);
 }
 
 /////////////////////// Διάσχιση του map μέσω κόμβων ///////////////////////////
 
 MapNode map_first(Map map) {
-    for (int i = 0; i < map->capacity; i++)
-        if (map->array[i].state == OCCUPIED)
-            return &map->array[i];
-    return MAP_EOF;
+    //Ξεκινάμε την επανάληψή μας απο το 1ο στοιχείο, μέχρι να βρούμε κάτι όντως τοποθετημένο
+	for (int i = 0; i < map->capacity; i++)
+		if (map->array[i].state == OCCUPIED)
+			return &map->array[i];
+
+	return MAP_EOF;
 }
 
 MapNode map_next(Map map, MapNode node) {
-	// bool position_reset = false; // Αν true ψάχνουμε τα vectors απτήν αρχή
+	// Το node είναι pointer στο i-οστό στοιχείο του array, οπότε node - array == i  (pointer arithmetic!)
+	for (int i = node - map->array + 1; i < map->capacity; i++)
+		if (map->array[i].state == OCCUPIED)
+			return &map->array[i];
 
-	// if (node->in_vector_flag == false) {
-    //     // Το node είναι pointer στο i-οστό στοιχείο του array, οπότε node - array == i  (pointer arithmetic!)
-    //     for (int i = node - map->array + 1; i < map->capacity; i++)
-    //         if (map->array[i].state == OCCUPIED)
-    //             return &map->array[i];
-    //     position_reset = true;    // Αφού δεν είναι στο map_array θα ψαξω στα vectors απτήν αρχή
-    // }
-
-    // bool next_node = position_reset ? true : false;		// Αν true ψάχνω πρώτα το κανονικ΄΄ο node και μετά θα βρω το next
-	// uint pos = map->hash_function(node->key) % map->capacity;
-    // for (int position = position_reset ? 0 : pos;
-    //     position < map->capacity;
-    //     position++) {
-    //     if (vector_size(map->vector_array[position]) != 0)
-    //         for (VectorNode vector_node = vector_first(map->vector_array[position]);    
-    //             vector_node != VECTOR_EOF;
-    //             vector_node = vector_next(map->vector_array[position], vector_node)) {
-	// 			MapNode map_node = vector_node_value(map->vector_array[position], vector_node);
-	// 			if (next_node && map_node->state == OCCUPIED)
-	// 				return map_node;
-	// 			if (map_node->state == OCCUPIED)
-	// 				if (map->compare(map_node->key, node->key) == 0)
-	// 					next_node = true;
-	// 		}
-	// }
 	return MAP_EOF;
 }
 
@@ -323,10 +284,16 @@ Pointer map_node_value(Map map, MapNode node) {
 }
 
 MapNode map_find_node(Map map, Pointer key) {
-	for (int pos = map->hash_function(key) % map->capacity; pos < map->capacity; pos++)
-		if (map->array[pos].state == OCCUPIED)
-			if (map->compare(map->array[pos].key, key) == 0)
-				return &map->array[pos];
+	// Κάθε κόμβος είναι μέχρι NEIGHBOURS θέσεις πιο μετά από εκεί
+	// που κάνει hash άρα ψάχνουμε μόνο σε αυτο το διάστημα
+	uint pos = map->hash_function(key) % map->capacity;
+	for (int i = 0; i < NEIGHBOURS + 1; i++)
+	{
+		if (map->array[pos].state == OCCUPIED && map->compare(map->array[pos].key, key) == 0)
+			return &map->array[pos];
+		pos = (pos + 1) % map->capacity;
+	}
+	
 	return MAP_EOF;
 }
 

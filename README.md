@@ -1,3 +1,4 @@
+![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![run-tests](../../workflows/run-tests/badge.svg)
 
 # 🚀 **UsingHopscotchHash & UsingHybridHash**
